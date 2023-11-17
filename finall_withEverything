@@ -1,0 +1,154 @@
+import network
+import utime
+import urequests
+from machine import Pin, PWM
+
+# Replace with your Wi-Fi credentials
+WIFI_SSID = 'DawshetHameja'
+WIFI_PASSWORD = 'DaraParsaFA50!'
+
+# Replace with your API endpoint and key
+API_URL = 'https://codyiron.com/api/devices/'
+API_KEY = '1ba7dc1a099ab1e13697f05853b785ed06accfbb'
+
+# Define the pin numbers for your lamps
+LAMP_PINS = {
+    4: 32,  # Pin for Badezimmer
+    3: 27,  # Pin for Wohnzimmer
+}
+
+# Define the pin numbers for your RGB LED
+RED_PIN = 14
+GREEN_PIN = 25
+BLUE_PIN = 33
+
+# Define the ID associated with the RGB LED
+RGB_LED_ID = 1
+
+# Initialize the lamp pins
+def initialize_lamps():
+    for pin in LAMP_PINS.values():
+        Pin(pin, Pin.OUT).value(0)
+
+# Initialize the RGB LED pins as PWM outputs
+def initialize_rgb_led():
+    red_pwm = PWM(Pin(RED_PIN), freq=1000, duty=0)
+    green_pwm = PWM(Pin(GREEN_PIN), freq=1000, duty=0)
+    blue_pwm = PWM(Pin(BLUE_PIN), freq=1000, duty=0)
+    return red_pwm, green_pwm, blue_pwm
+
+# Initialize the RGB LED based on the ID associated with it
+def initialize_rgb_led_by_id(rgb_id):
+    rgb_pins = {
+        1: (14, 25, 33),  # Replace with your actual pin numbers
+    }
+
+    red_pin, green_pin, blue_pin = rgb_pins.get(rgb_id, (0, 0, 0))
+
+    red_pwm = PWM(Pin(red_pin), freq=1000, duty=0)
+    green_pwm = PWM(Pin(green_pin), freq=1000, duty=0)
+    blue_pwm = PWM(Pin(blue_pin), freq=1000, duty=0)
+
+    return red_pwm, green_pwm, blue_pwm
+
+# Function to connect to Wi-Fi
+def connect_to_wifi(ssid, password):
+    wlan = network.WLAN(network.STA_IF)
+
+    if not wlan.isconnected():
+        print("Connecting to WiFi...")
+        wlan.active(True)
+        wlan.connect(ssid, password)
+
+        # Wait for the connection to be established
+        while not wlan.isconnected():
+            utime.sleep(1)
+
+    print("Connected to WiFi.")
+    print("IP Address:", wlan.ifconfig()[0])
+
+# Function to set the color of the RGB LED based on a hex color code and brightness
+def set_rgb_color(hex_color, red_pwm, green_pwm, blue_pwm, brightness=100, status=None):
+    # Parse the hex color code and extract individual RGB components
+    if status :
+        red = int(hex_color[1:3], 16)
+        green = int(hex_color[3:5], 16)
+        blue = int(hex_color[5:7], 16)
+
+        # Adjust brightness
+        red = int(red * brightness / 100)
+        green = int(green * brightness / 100)
+        blue = int(blue * brightness / 100)
+
+        # Set the RGB LED to the specified color
+        red_pwm.duty(red)
+        green_pwm.duty(green)
+        blue_pwm.duty(blue)
+        print(f"Lamp {RGB_LED_ID} turned ON with brightness {brightness}%")
+        
+    else:
+        red_pwm.duty(0)
+        green_pwm.duty(0)
+        blue_pwm.duty(0)
+        print(f"Lamp {RGB_LED_ID} turned OFF")
+
+# Function to control a lamp based on status
+def control_lamp(lamp_id, brightness, status):
+    pin = LAMP_PINS.get(lamp_id)
+    pwm = None  # Declare pwm here
+
+    if pin is not None:
+        if status:
+            pwm = PWM(Pin(pin), freq=1000, duty=int(brightness * 10.23))
+            print(f"Lamp {lamp_id} turned ON with brightness {brightness}%")
+        else:
+            pwm = PWM(Pin(pin), freq=1000, duty=0)
+            print(f"Lamp {lamp_id} turned OFF")
+    else:
+        print(f"Error: Lamp {lamp_id} not found in LAMP_PINS")
+
+# Main function to get data from the API and control RGB LED
+def main():
+    connect_to_wifi(WIFI_SSID, WIFI_PASSWORD)
+
+    # Initialize lamps and RGB LED outside the loop
+    initialize_lamps()
+    red_pwm, green_pwm, blue_pwm = initialize_rgb_led_by_id(RGB_LED_ID)
+
+    while True:
+        headers = {'Authorization': 'Token ' + API_KEY}
+        response = urequests.get(API_URL, headers=headers)
+
+        if response.status_code == 200:
+            # Parse JSON data from the API response
+            lamp_data = response.json()
+
+            # Control lamps and RGB LED based on the received data
+            for lamp_info in lamp_data:
+                lamp_id = lamp_info.get("id")
+                status = lamp_info.get("status")
+                brightness = lamp_info.get("brightness", 100)
+
+                # If the ID matches the RGB LED ID, set the color
+                if lamp_id == RGB_LED_ID and "color" in lamp_info and status == True:
+                    rgb_color = lamp_info.get("color")
+                    set_rgb_color(rgb_color, red_pwm, green_pwm, blue_pwm, brightness, status)
+                elif lamp_id == RGB_LED_ID and "color" in lamp_info and status == False:
+                    rgb_color = lamp_info.get("color")
+                    set_rgb_color(rgb_color, red_pwm, green_pwm, blue_pwm, brightness, status)
+                elif lamp_id in LAMP_PINS and status == True:
+                    control_lamp(lamp_id, brightness, status)
+                elif  lamp_id in LAMP_PINS and status == False:
+                    control_lamp(lamp_id, brightness, status)
+
+        else:
+            print(f"Error: {response.status_code}")
+
+        response.close()
+
+        # Add a delay of 5 seconds before making the next API call
+        utime.sleep(1)
+
+# Run the main function
+if __name__ == "__main__":
+    main()
